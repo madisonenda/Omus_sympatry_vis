@@ -1,0 +1,120 @@
+---
+title: "Omus_sympatry_visualization"
+author: "Maddy Enda"
+format: html
+editor: visual
+---
+
+# Creating a visualization for the Omus sympatry distribution report
+
+## Author: Maddy Enda
+## Contact: madisonenda@gmail.com
+## Last Edit: 06/05/2026
+
+
+### Overview:
+
+- In this script, we will be creating a geospatial visualization for a report on the distribution of `Omus sympatry`.
+
+
+### Import libraries
+
+```{r}
+# Import relevant libraries
+librarian::shelf(tidyverse,
+                 dplyr,
+                 stars,
+                 sf,
+                 readxl,
+                 tmap)
+```
+
+### Import the data
+
+```{r}
+# Load in the excel file
+Omus_forms <- read_excel("C:/Users/Madison.Enda/Desktop/omus_data/Omus_forms.xlsx")
+```
+
+### Replace NA with 0
+
+```{r}
+# Replace NAs
+Omus_forms[is.na(Omus_forms)] <- 0
+```
+
+### Read in the california shapefile
+
+```{r}
+# Read in shapefile
+shp <- st_read("C:/Users/Madison.Enda/Desktop/omus_data/CA_Counties.shp")
+```
+
+### Quick visual
+
+```{r}
+# Visualize
+tm_shape(shp) +
+  tm_polygons()
+```
+### Add points
+
+```{r}
+# Create points from your coordinate dataframe
+Omus_forms <- Omus_forms %>%
+  separate(
+    Coordinates,
+    into = c("lat", "lon"),
+    sep = ","
+  ) %>%
+  mutate(
+    lat = as.numeric(trimws(lat)),
+    lon = as.numeric(trimws(lon))
+  )
+
+# Convert the lat and lon columns to points
+pts <- st_as_sf(
+  Omus_forms,
+  coords = c("lon", "lat"),
+  crs = 4326
+)
+
+pts <- st_transform(pts, st_crs(shp))
+```
+
+### Create bounding box
+
+```{r}
+bb <- st_bbox(pts)
+
+bb_poly <- st_as_sfc(bb, crs = st_crs(pts))
+
+bb_poly_proj <- st_transform(bb_poly, st_crs(shp))
+
+shp_clip <- st_crop(shp, st_bbox(bb_poly_proj))
+```
+
+### Test new clip
+
+```{r}
+tmap_mode("plot")
+
+tm_shape(shp_clip) +
+  tm_polygons(fill = "gray90") +
+  tm_shape(pts) +
+  tm_dots(
+    fill = "SiteID",
+    palette = "Set3",
+    size = 0.15
+  )
+```
+```{r}
+tm_shape(shp_clip) +
+  tm_polygons(fill = "gray90") +
+tm_shape(pts) +
+  tm_dots(size = 0.5, fill = "Site")
+```
+
+
+
+
