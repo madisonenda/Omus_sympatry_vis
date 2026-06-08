@@ -32,7 +32,8 @@ librarian::shelf(tidyverse,
                  ggspatial,
                  cowplot,
                  ggpattern,
-                 ggimgae)
+                 ggimgae,
+                 calecopal)
 ```
 
 ### Import the data
@@ -137,6 +138,8 @@ county_long <- county_summary %>%
     values_to = "pct"
   )
 
+county_long$species <- as.character(county_long$species)
+
 county_long$species <- factor(
   county_long$species,
   levels = c("lecontei", "subcylindricus", "submetallicus", "californicus")
@@ -151,31 +154,97 @@ pattern_types <- c(
   submetallicus = "circle",
   californicus = "none"
 )
+```
 
+### Built pie charts
+
+```{r}
+# Creating custom colors
+species_colors <- c("#66CC66", "lightblue", "#E6D2B5", "#F7BB38")
+
+names(species_colors) <- c(
+  "lecontei",
+  "subcylindricus",
+  "submetallicus",
+  "californicus"
+)
+```
+
+### Use new font
+
+```{r}
+install.packages(c("showtext", "sysfonts"))
+library(showtext)
+library(sysfonts)
+
+font_add_google("Montserrat", "montserrat")
+font_add_google("Inter", "inter")
+font_add_google("Open Sans", "opensans")
+font_add_google("Public Sans", "publicsans")
+
+showtext_auto()
+```
+
+### Make pie chart labels
+
+```{r}
+county_long <- county_long %>%
+  mutate(label = paste0(round(pct * 100, 1), "%"))
+
+county_long <- county_long %>%
+  group_by(County) %>%
+  mutate(ypos = cumsum(pct) - 0.5 * pct) %>%
+  ungroup()
+```
+
+
+```{r}
 # ----------------------------
 # 4. Pie function (PATTERN ONLY, NO COLOR)
 # ----------------------------
 make_pie <- function(df){
 
-  ggplot(df, aes(x = "", y = pct, pattern = species)) +
+  ggplot(df, aes(x = "", y = pct, fill = species, pattern = species)) +
+    
     geom_col_pattern(
-      fill = "white",
       color = "black",
-      pattern_fill = "black",
-      pattern_colour = "black",
-      width = 1
+      width = 1,
+      
+      # keep your colors
+      pattern_fill = "#FDF5E6",
+      pattern_colour = "#FDF5E6",
+      pattern_density = 0.4,
+      pattern_spacing = 0.03
     ) +
-    coord_polar(theta = "y") +
+    
+    geom_text(
+      data = ~ dplyr::filter(.x, pct > 0),
+      aes(label = paste0(round(pct * 100, 1), "%")),
+      position = position_stack(vjust = 0.5),
+      color = "black",
+      fontface = "bold",
+      family = "inter",
+      size = 3.0
+    ) +
+    
+    coord_polar(theta = "y", direction = -1) +
+    
+    scale_fill_manual(values = species_colors) +
     scale_pattern_manual(values = pattern_types) +
+    
     theme_void() +
     theme(
-      plot.title = element_text(size = 7),
+      plot.title = element_text(
+        size = 8,
+        family = "montserrat",
+        face = "bold"
+      ),
       plot.margin = margin(0, 0, 0, 0),
       legend.position = "none"
     ) +
+    
     ggtitle(unique(df$County))
 }
-
 # ----------------------------
 # 5. Build pies
 # ----------------------------
@@ -183,7 +252,33 @@ pie_list <- split(county_long, county_long$County)
 pies <- lapply(pie_list, make_pie)
 
 pie_panel <- wrap_plots(pies, ncol = 2)
+```
 
+```{r}
+pie_panel
+```
+### save it
+
+```{r}
+pie_panel <- pie_panel &
+  theme(
+    plot.background = element_rect(fill = "transparent", color = NA)
+  )
+
+ggsave(
+  "pie_charts.png",
+  plot = pie_panel,
+  width = 7,
+  height = 5,
+  dpi = 600,
+  bg = "transparent"
+)
+```
+
+
+### Make a legend
+
+```{r}
 # ----------------------------
 # 6. Create ONE clean legend (pattern only)
 # ----------------------------
@@ -218,17 +313,8 @@ legend_plot <- ggplot(
 # Extract shared legend
 shared_legend <- get_legend(legend_plot)
 
-# ----------------------------
-# 7. Combine pies + legend
-# ----------------------------
-# final_pies <- wrap_plots(
-#   pie_panel,
-#   shared_legend,
-#   ncol = 1,
-#   heights = c(10, 1)
-# )
-final_pies <- pie_panel
 ```
+
 
 ### Load in beetle png
 
