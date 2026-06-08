@@ -1,0 +1,149 @@
+---
+title: "omus_grobs_vis"
+author: "Maddy Enda"
+format: html
+editor: visual
+editor_options: 
+  chunk_output_type: console
+---
+
+
+# Creating a visualization for the Omus sympatry distribution report
+
+## Author: Maddy Enda
+
+## Contact: madisonenda\@gmail.com
+
+## Last Edit: 06/08/2026
+
+### Overview:
+
+-   In this script, we will be creating a geospatial visualization for a report on the distribution of `Omus sympatry`.
+
+### Main code
+
+### Import libraries
+
+```{r}
+# Load in libraries
+library(tidyverse)
+library(sf)
+library(readxl)
+library(scatterpie)
+library(ggpattern)
+library(ggspatial)
+library(grid)
+library(gridExtra)
+library(cowplot)
+library(scales)
+```
+
+### Import data
+
+```{r}
+# ----------------------------
+# IMPORT DATA
+# ----------------------------
+Omus_forms <- read_excel("C:/Users/Madison.Enda/Desktop/omus_data/Omus_forms.xlsx")
+Omus_forms[is.na(Omus_forms)] <- 0
+
+Omus_forms <- Omus_forms %>%
+  mutate(
+    lec_pct = lecontei / Total,
+    cal_pct = californicus / Total,
+    cyl_pct = subcylindricus / Total,
+    met_pct = submetallicus / Total
+  )
+
+Omus_forms <- Omus_forms %>%
+  separate(Coordinates, into = c("lat", "lon"), sep = ",") %>%
+  mutate(
+    lat = as.numeric(trimws(lat)),
+    lon = as.numeric(trimws(lon))
+  )
+
+pts <- st_as_sf(Omus_forms, coords = c("lon", "lat"), crs = 4326)
+
+# ----------------------------
+# SHAPEFILE
+# ----------------------------
+shp <- st_read("C:/Users/Madison.Enda/Desktop/omus_data/CA_Counties.shp")
+pts <- st_transform(pts, st_crs(shp))
+
+shp_clip <- st_crop(shp, st_bbox(st_transform(pts, st_crs(shp))))
+```
+
+### Make main map
+
+```{r}
+# ----------------------------
+# MAIN MAP
+# ----------------------------
+
+highlight_counties <- c(
+  "Monterey",
+  "San Luis Obispo",
+  "Santa Barbara",
+  "Fresno",
+  "San Benito",
+  "Santa Clara",
+  "San Mateo",
+  "San Francisco",
+  "Merced"
+)
+
+# split base vs highlight
+shp_highlight <- shp_clip %>%
+  filter(NAME %in% highlight_counties)
+
+shp_base <- shp_clip %>%
+  filter(!NAME %in% highlight_counties)
+
+# labels ONLY for highlighted counties
+county_labels <- shp_highlight %>%
+  st_point_on_surface()
+
+# ----------------------------
+# CENTRAL MAP
+# ----------------------------
+central_map <- ggplot() +
+  
+  # base counties
+  geom_sf(
+    data = shp_base,
+    fill = "grey95",
+    color = "grey50"
+  ) +
+  
+  # highlighted counties (LIGHT BROWN FILL)
+  geom_sf(
+    data = shp_highlight,
+    fill = "burlywood2",   # <- light brown
+    color = "burlywood4",
+    linewidth = 1.2
+  ) +
+  
+  # points
+  geom_sf(
+    data = pts,
+    color = "green4",
+    size = 2
+  ) +
+  
+  # labels (only highlighted counties)
+  geom_sf_text(
+    data = county_labels,
+    aes(label = NAME),
+    size = 2,
+    color = "black"
+  ) +
+  
+  theme_void()
+```
+
+### Run final map
+
+```{r}
+grid.draw(final)
+```
+

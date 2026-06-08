@@ -8,14 +8,14 @@ editor: visual
 # Creating a visualization for the Omus sympatry distribution report
 
 ## Author: Maddy Enda
-## Contact: madisonenda@gmail.com
-## Last Edit: 06/05/2026
 
+## Contact: madisonenda\@gmail.com
+
+## Last Edit: 06/05/2026
 
 ### Overview:
 
-- In this script, we will be creating a geospatial visualization for a report on the distribution of `Omus sympatry`.
-
+-   In this script, we will be creating a geospatial visualization for a report on the distribution of `Omus sympatry`.
 
 ### Import libraries
 
@@ -26,7 +26,13 @@ librarian::shelf(tidyverse,
                  stars,
                  sf,
                  readxl,
-                 tmap)
+                 scatterpie,
+                 ggtext,
+                 patchwork,
+                 ggspatial,
+                 cowplot,
+                 ggpattern,
+                 ggimgae)
 ```
 
 ### Import the data
@@ -41,25 +47,19 @@ Omus_forms <- read_excel("C:/Users/Madison.Enda/Desktop/omus_data/Omus_forms.xls
 ```{r}
 # Replace NAs
 Omus_forms[is.na(Omus_forms)] <- 0
-```
 
-### Read in the california shapefile
+# Create a species percentage column
+Omus_forms <- Omus_forms %>%
+  mutate(
+    lec_pct = lecontei / Total,
+    cal_pct = californicus / Total,
+    cyl_pct = subcylindricus / Total,
+    met_pct = submetallicus / Total
+  )
+```
 
 ```{r}
-# Read in shapefile
-shp <- st_read("C:/Users/Madison.Enda/Desktop/omus_data/CA_Counties.shp")
-```
-
-### Quick visual
-
-```{r}
-# Visualize
-tm_shape(shp) +
-  tm_polygons()
-```
 ### Add points
-
-```{r}
 # Create points from your coordinate dataframe
 Omus_forms <- Omus_forms %>%
   separate(
@@ -78,7 +78,15 @@ pts <- st_as_sf(
   coords = c("lon", "lat"),
   crs = 4326
 )
+```
 
+### Read in the california shapefile
+
+```{r}
+# Read in shapefile
+shp <- st_read("C:/Users/Madison.Enda/Desktop/omus_data/CA_Counties.shp")
+
+# Convert points to be same
 pts <- st_transform(pts, st_crs(shp))
 ```
 
@@ -94,27 +102,253 @@ bb_poly_proj <- st_transform(bb_poly, st_crs(shp))
 shp_clip <- st_crop(shp, st_bbox(bb_poly_proj))
 ```
 
-### Test new clip
+### Make pie charts
 
 ```{r}
-tmap_mode("plot")
+# ----------------------------
+# 1. Aggregate by county
+# ----------------------------
+county_summary <- Omus_forms %>%
+  group_by(County) %>%
+  summarise(
+    lecontei = sum(lecontei, na.rm = TRUE),
+    subcylindricus = sum(subcylindricus, na.rm = TRUE),
+    submetallicus = sum(submetallicus, na.rm = TRUE),
+    californicus = sum(californicus, na.rm = TRUE),
+    .groups = "drop"
+  ) %>%
+  rowwise() %>%
+  mutate(
+    Total = sum(c_across(c(lecontei, subcylindricus, submetallicus, californicus))),
+    lecontei = lecontei / Total,
+    subcylindricus = subcylindricus / Total,
+    submetallicus = submetallicus / Total,
+    californicus = californicus / Total
+  ) %>%
+  ungroup()
 
-tm_shape(shp_clip) +
-  tm_polygons(fill = "gray90") +
-  tm_shape(pts) +
-  tm_dots(
-    fill = "SiteID",
-    palette = "Set3",
-    size = 0.15
+# ----------------------------
+# 2. Long format
+# ----------------------------
+county_long <- county_summary %>%
+  pivot_longer(
+    cols = c(lecontei, subcylindricus, submetallicus, californicus),
+    names_to = "species",
+    values_to = "pct"
+  )
+
+county_long$species <- factor(
+  county_long$species,
+  levels = c("lecontei", "subcylindricus", "submetallicus", "californicus")
+)
+
+# ----------------------------
+# 3. Pattern mapping
+# ----------------------------
+pattern_types <- c(
+  lecontei = "stripe",
+  subcylindricus = "crosshatch",
+  submetallicus = "circle",
+  californicus = "none"
+)
+
+# ----------------------------
+# 4. Pie function (PATTERN ONLY, NO COLOR)
+# ----------------------------
+make_pie <- function(df){
+
+  ggplot(df, aes(x = "", y = pct, pattern = species)) +
+    geom_col_pattern(
+      fill = "white",
+      color = "black",
+      pattern_fill = "black",
+      pattern_colour = "black",
+      width = 1
+    ) +
+    coord_polar(theta = "y") +
+    scale_pattern_manual(values = pattern_types) +
+    theme_void() +
+    theme(
+      plot.title = element_text(size = 7),
+      plot.margin = margin(0, 0, 0, 0),
+      legend.position = "none"
+    ) +
+    ggtitle(unique(df$County))
+}
+
+# ----------------------------
+# 5. Build pies
+# ----------------------------
+pie_list <- split(county_long, county_long$County)
+pies <- lapply(pie_list, make_pie)
+
+pie_panel <- wrap_plots(pies, ncol = 2)
+
+# ----------------------------
+# 6. Create ONE clean legend (pattern only)
+# ----------------------------
+legend_df <- data.frame(
+  species = levels(county_long$species),
+  pct = 1
+)
+
+legend_plot <- ggplot(
+  legend_df,
+  aes(x = species, y = pct, pattern = species)
+) +
+  geom_col_pattern(
+    fill = "white",        # IMPORTANT
+    color = "black",
+    pattern_fill = "black",
+    pattern_colour = "black"
+  ) +
+  scale_pattern_manual(values = pattern_types) +
+  coord_flip() +
+  theme_void() +
+  theme(
+    legend.position = "bottom",
+    legend.text = element_text(size = 8),
+    legend.title = element_text(size = 9)
+  ) +
+  guides(
+    fill = "none",
+    pattern = guide_legend(title = "Species")
+  )
+
+# Extract shared legend
+shared_legend <- get_legend(legend_plot)
+
+# ----------------------------
+# 7. Combine pies + legend
+# ----------------------------
+# final_pies <- wrap_plots(
+#   pie_panel,
+#   shared_legend,
+#   ncol = 1,
+#   heights = c(10, 1)
+# )
+final_pies <- pie_panel
+```
+
+### Load in beetle png
+
+```{r}
+# Load in little beetle
+beetle_png <- "ground-beetle.png"
+
+# Add image path for pts
+pts$img <- beetle_png
+
+# plot little beetle
+coords <- st_coordinates(pts)
+
+pts_img <- cbind(pts, coords)
+```
+
+
+### Create main map
+
+```{r}
+# Highlight our counties
+target_counties <- c(
+  "Fresno",
+  "Merced",
+  "Monterey",
+  "San Benito",
+  "San Francisco",
+  "San Luis Obispo",
+  "San Mateo",
+  "Santa Barbara",
+  "Santa Clara",
+  "Santa Cruz"
+)
+
+green_outline <- shp_clip %>%
+  dplyr::filter(NAME %in% target_counties)
+
+# ----------------------------
+# MAIN MAP
+# ----------------------------
+central_map <- ggplot() +
+  geom_sf(
+    data = shp_clip,
+    fill = "oldlace",
+    color = "grey50",
+    linewidth = 0.3
+  ) +
+  geom_sf(
+    data = green_outline,
+    fill = NA,
+    color = "green4",
+    linewidth = 1.0,
+  ) +
+  geom_image(
+    data = pts_img,
+    aes(x = X, y = Y, image = img),
+    size = 0.06
+  ) +
+  coord_sf(clip = "off") +
+  theme_void() +
+  theme(
+    plot.margin = margin(20, 20, 20, 20)
+  )
+
+# ----------------------------
+# CALIFORNIA INSET
+# ----------------------------
+locator_map <- ggplot() +
+  geom_sf(
+    data = shp,
+    fill = "burlywood3",
+    color = "grey40"
+  ) +
+  theme_void()
+
+bbox <- st_bbox(shp_clip)
+
+locator_map <- locator_map +
+  annotate(
+    "rect",
+    xmin = bbox["xmin"],
+    xmax = bbox["xmax"],
+    ymin = bbox["ymin"],
+    ymax = bbox["ymax"],
+    fill = NA,
+    color = "green2",
+    linewidth = 1
+  )
+
+map_panel <-
+  central_map +
+  inset_element(
+    locator_map,
+    left = 0.57,
+    bottom = 0.70,
+    right = 0.95,
+    top = 0.95
   )
 ```
+
 ```{r}
-tm_shape(shp_clip) +
-  tm_polygons(fill = "gray90") +
-tm_shape(pts) +
-  tm_dots(size = 0.5, fill = "Site")
+map_panel <- map_panel &
+  theme(
+    plot.background = element_rect(fill = "transparent", color = NA)
+  )
+
+plot(map_panel)
 ```
+### Save the map
 
-
+```{r}
+# Publication quality
+ggsave(
+  "omus_distribution_map_2.png",
+  map_panel,
+  width = 7,
+  height = 5,
+  units = "in",
+  dpi = 600
+)
+```
 
 
