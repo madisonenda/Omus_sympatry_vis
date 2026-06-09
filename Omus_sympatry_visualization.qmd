@@ -197,7 +197,6 @@ county_long <- county_long %>%
   ungroup()
 ```
 
-
 ```{r}
 # ----------------------------
 # 4. Pie function (PATTERN ONLY, NO COLOR)
@@ -206,16 +205,17 @@ make_pie <- function(df){
 
   ggplot(df, aes(x = "", y = pct, fill = species, pattern = species)) +
     
-    geom_col_pattern(
-      color = "black",
-      width = 1,
-      
-      # keep your colors
-      pattern_fill = "#FDF5E6",
-      pattern_colour = "#FDF5E6",
-      pattern_density = 0.4,
-      pattern_spacing = 0.03
-    ) +
+   geom_col_pattern(
+  color = "black",
+  width = 1,
+  linewidth = 0.18,
+  linejoin = "round",
+
+  pattern_fill = "#FDF5E6",
+  pattern_colour = "#FDF5E6",
+  pattern_density = 0.1,
+  pattern_spacing = 0.03
+) +
     
     geom_text(
       data = ~ dplyr::filter(.x, pct > 0),
@@ -224,10 +224,10 @@ make_pie <- function(df){
       color = "black",
       fontface = "bold",
       family = "inter",
-      size = 3.0
+      size = 8.0
     ) +
     
-    coord_polar(theta = "y", direction = -1) +
+    coord_polar(theta = "y", direction = -1, clip = "on") +
     
     scale_fill_manual(values = species_colors) +
     scale_pattern_manual(values = pattern_types) +
@@ -235,12 +235,14 @@ make_pie <- function(df){
     theme_void() +
     theme(
       plot.title = element_text(
-        size = 8,
+        size = 28,
         family = "montserrat",
         face = "bold"
       ),
       plot.margin = margin(0, 0, 0, 0),
-      legend.position = "none"
+      legend.position = "none",
+      plot.background = element_rect(fill = "transparent", color = NA),
+  panel.background = element_rect(fill = "transparent", color = NA)
     ) +
     
     ggtitle(unique(df$County))
@@ -257,6 +259,7 @@ pie_panel <- wrap_plots(pies, ncol = 2)
 ```{r}
 pie_panel
 ```
+
 ### save it
 
 ```{r}
@@ -266,55 +269,148 @@ pie_panel <- pie_panel &
   )
 
 ggsave(
-  "pie_charts.png",
-  plot = pie_panel,
-  width = 7,
-  height = 5,
-  dpi = 600,
-  bg = "transparent"
+  "pies.png",
+  pie_panel,
+  bg = "transparent",
+  width = 12,
+  height = 8,
+  dpi = 300
 )
 ```
 
+### Make title object
+
+```{r}
+title_plot <- ggplot() +
+  annotate(
+    "text",
+    x = 0.5,
+    y = 0.5,
+    label = "Distribution of Omus Species Counts Across Central California Counties",
+    family = "inter",
+    fontface = "bold",
+    size = 20
+  ) +
+  xlim(0, 1) +
+  ylim(0, 1) +
+  theme_void() +
+  theme(
+    plot.background = element_rect(fill = "transparent", color = NA),
+    panel.background = element_rect(fill = "transparent", color = NA)
+  )
+```
+
+```{r}
+title_plot
+```
+
+### Save Title
+
+```{r}
+ggsave(
+  "title.png",
+  title_plot,
+  bg = "transparent",
+  width = 10,
+  height = 3,
+  dpi = 300
+)
+```
 
 ### Make a legend
 
 ```{r}
-# ----------------------------
-# 6. Create ONE clean legend (pattern only)
-# ----------------------------
+species_vec <- names(species_colors)
+n <- length(species_vec)
+
+
 legend_df <- data.frame(
-  species = levels(county_long$species),
-  pct = 1
+  species = species_vec,
+  x = seq(1, by = 0.6, length.out = n),
+  y = 1
 )
 
-legend_plot <- ggplot(
+legend_panel <- ggplot(
   legend_df,
-  aes(x = species, y = pct, pattern = species)
-) +
-  geom_col_pattern(
-    fill = "white",        # IMPORTANT
-    color = "black",
-    pattern_fill = "black",
-    pattern_colour = "black"
-  ) +
-  scale_pattern_manual(values = pattern_types) +
-  coord_flip() +
-  theme_void() +
-  theme(
-    legend.position = "bottom",
-    legend.text = element_text(size = 8),
-    legend.title = element_text(size = 9)
-  ) +
-  guides(
-    fill = "none",
-    pattern = guide_legend(title = "Species")
+  aes(
+    x = x,
+    y = y,
+    fill = species,
+    pattern = species
   )
+) +
+  geom_tile_pattern(
+    width = 0.25,
+    height = 0.25,
+    color = "black",
+    pattern_fill = "#FDF5E6",
+    pattern_colour = "#FDF5E6",
+    pattern_density = 0.4,
+    pattern_spacing = 0.03
+  ) +
 
-# Extract shared legend
-shared_legend <- get_legend(legend_plot)
+  # species names just to the right of each box
+  geom_text(
+  aes(
+    x = x,
+    y = 0.80,
+    label = species
+  ),
+  hjust = 0.5,
+  vjust = 1,
+  family = "inter",
+  fontface = "italic",
+  size = 8
+) +
 
+  # title
+  annotate(
+    "text",
+    x = mean(range(legend_df$x)),
+    y = 1.3,
+    label = "Omus species",
+    family = "inter",
+    fontface = "bold",
+    size = 15
+  ) +
+
+  scale_fill_manual(values = species_colors) +
+  scale_pattern_manual(values = pattern_types) +
+
+  coord_fixed(
+  clip = "off",
+  xlim = c(0.5, length(species_colors) + 1.5),
+  ylim = c(0.4, 2)   # key fix for title + labels
+) + 
+
+  theme_void() +
+ theme(
+  plot.background = element_rect(fill = "transparent", color = NA),
+  panel.background = element_rect(fill = "transparent", color = NA),
+  legend.background = element_rect(fill = "transparent", color = NA),
+  legend.position= "none",
+  panel.grid = element_blank()
+)
 ```
 
+```{r}
+plot(legend_panel)
+```
+
+### Save legend
+
+```{r}
+showtext_auto(TRUE)
+
+ggsave(
+  "legend.png",
+  legend_panel,
+  bg = "transparent",
+  width = 10,
+  height = 4,
+  dpi = 300
+)
+```
 
 ### Load in beetle png
 
@@ -330,7 +426,6 @@ coords <- st_coordinates(pts)
 
 pts_img <- cbind(pts, coords)
 ```
-
 
 ### Create main map
 
@@ -358,14 +453,14 @@ green_outline <- shp_clip %>%
 central_map <- ggplot() +
   geom_sf(
     data = shp_clip,
-    fill = "oldlace",
+    fill = "grey95",
     color = "grey50",
     linewidth = 0.3
   ) +
   geom_sf(
     data = green_outline,
     fill = NA,
-    color = "green4",
+    color = "black",
     linewidth = 1.0,
   ) +
   geom_image(
@@ -385,7 +480,7 @@ central_map <- ggplot() +
 locator_map <- ggplot() +
   geom_sf(
     data = shp,
-    fill = "burlywood3",
+    fill = "grey70",
     color = "grey40"
   ) +
   theme_void()
@@ -423,6 +518,7 @@ map_panel <- map_panel &
 
 plot(map_panel)
 ```
+
 ### Save the map
 
 ```{r}
@@ -437,4 +533,72 @@ ggsave(
 )
 ```
 
+# Arrange final product!
 
+### Load libraries
+
+```{r}
+library(png)
+library(grid)
+```
+
+```{r}
+# create base
+base <- ggplot() +
+  theme_void() +
+  theme(
+    plot.background = element_rect(fill = "#F6F1E6", color = NA)
+  )
+```
+
+```{r}
+# Read in pngs
+title_img <- rasterGrob(readPNG("title.png"), interpolate = TRUE)
+map_img   <- rasterGrob(readPNG("omus_distribution_map_2.png"), interpolate = TRUE)
+pies_img  <- rasterGrob(readPNG("pies.png"), interpolate = TRUE)
+legend_img <- rasterGrob(readPNG("legend.png"), interpolate = TRUE)
+```
+
+```{r}
+final <- base +
+
+  # -----------------------
+  # TITLE (top 10%)
+  # -----------------------
+  annotation_custom(
+    title_img,
+    xmin = 0.05, xmax = 0.95,
+    ymin = 0.90, ymax = 0.99
+  ) +
+
+  # -----------------------
+  # MAP (60% width, full height under title)
+  # -----------------------
+  annotation_custom(
+    map_img,
+    xmin = 0.00, xmax = 0.60,
+    ymin = 0.00, ymax = 0.90
+  ) +
+
+  # -----------------------
+  # PIES (top-right block)
+  # -----------------------
+  annotation_custom(
+    pies_img,
+    xmin = 0.60, xmax = 1.00,
+    ymin = 0.40, ymax = 0.90
+  ) +
+
+  # -----------------------
+  # LEGEND (bottom-right under pies)
+  # -----------------------
+  annotation_custom(
+    legend_img,
+    xmin = 0.60, xmax = 1.00,
+    ymin = 0.00, ymax = 0.40
+  )
+```
+
+```{r}
+final
+```

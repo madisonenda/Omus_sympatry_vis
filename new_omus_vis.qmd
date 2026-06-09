@@ -1,0 +1,293 @@
+---
+title: "New_omus_vis"
+author: "Maddy Enda"
+format: html
+editor: visual
+---
+
+### Overview:
+
+-   In this script, we will be creating a geospatial visualization for a report on the distribution of `Omus sympatry`.
+
+### Import libraries
+
+```{r}
+# Import relevant libraries
+librarian::shelf(tidyverse,
+                 dplyr,
+                 stars,
+                 sf,
+                 readxl,
+                 scatterpie,
+                 ggtext,
+                 patchwork,
+                 ggspatial,
+                 cowplot,
+                 calecopal)
+```
+
+### Import the data
+
+```{r}
+# Load in the excel file
+Omus_forms <- read_excel("C:/Users/Madison.Enda/Desktop/omus_data/Omus_forms.xlsx")
+```
+
+### Replace NA with 0
+
+```{r}
+# Replace NAs
+Omus_forms[is.na(Omus_forms)] <- 0
+
+# Create a species percentage column
+Omus_forms <- Omus_forms %>%
+  mutate(
+    lec_pct = lecontei / Total,
+    cal_pct = californicus / Total,
+    cyl_pct = subcylindricus / Total,
+    met_pct = submetallicus / Total
+  )
+```
+
+```{r}
+### Add points
+# Create points from your coordinate dataframe
+Omus_forms <- Omus_forms %>%
+  separate(
+    Coordinates,
+    into = c("lat", "lon"),
+    sep = ","
+  ) %>%
+  mutate(
+    lat = as.numeric(trimws(lat)),
+    lon = as.numeric(trimws(lon))
+  )
+
+# Convert the lat and lon columns to points
+pts <- st_as_sf(
+  Omus_forms,
+  coords = c("lon", "lat"),
+  crs = 4326
+)
+```
+
+### Read in the california shapefile
+
+```{r}
+# Read in shapefile
+shp <- st_read("C:/Users/Madison.Enda/Desktop/omus_data/CA_Counties.shp")
+
+# Convert points to be same
+pts <- st_transform(pts, st_crs(shp))
+```
+
+### Create bounding box
+
+```{r}
+bb <- st_bbox(pts)
+
+bb_poly <- st_as_sfc(bb, crs = st_crs(pts))
+
+bb_poly_proj <- st_transform(bb_poly, st_crs(shp))
+
+shp_clip <- st_crop(shp, st_bbox(bb_poly_proj))
+```
+
+```{r}
+# =========================
+# Load libraries
+# =========================
+librarian::shelf(
+  tidyverse,
+  dplyr,
+  sf,
+  readxl,
+  ggplot2,
+  scatterpie,
+  cowplot
+)
+
+# =========================
+# Import data
+# =========================
+Omus_forms <- read_excel("C:/Users/Madison.Enda/Desktop/omus_data/Omus_forms.xlsx")
+Omus_forms[is.na(Omus_forms)] <- 0
+
+# =========================
+# Parse coordinates
+# =========================
+Omus_forms <- Omus_forms %>%
+  separate(Coordinates, into = c("lat", "lon"), sep = ",") %>%
+  mutate(
+    lat = as.numeric(trimws(lat)),
+    lon = as.numeric(trimws(lon))
+  )
+
+pts <- st_as_sf(Omus_forms, coords = c("lon", "lat"), crs = 4326)
+
+# =========================
+# Load counties
+# =========================
+shp <- st_read("C:/Users/Madison.Enda/Desktop/omus_data/CA_Counties.shp")
+
+# Transform EVERYTHING to same CRS (IMPORTANT FIX)
+shp <- st_transform(shp, 4326)
+pts <- st_transform(pts, 4326)
+
+# =========================
+# Clip / central CA
+# =========================
+shp_clip <- st_transform(shp_clip, 4326)
+
+# Assign points to clipped counties
+pts_ca <- st_intersection(pts, shp_clip)
+pts_ca <- pts_ca %>%
+  mutate(COUNTY_NAME = NAME)  # adjust if needed
+
+# =========================
+# Aggregate by county (COUNTS for scatterpie)
+# =========================
+county_dat <- pts_ca %>%
+  st_drop_geometry() %>%
+  group_by(COUNTY_NAME) %>%
+  summarise(
+    Total = n(),
+    lecontei = sum(lecontei),
+    californicus = sum(californicus),
+    subcylindricus = sum(subcylindricus),
+    submetallicus = sum(submetallicus),
+    .groups = "drop"
+  )
+
+# =========================
+# Centroids in SAME CRS
+# =========================
+centroids <- shp_clip %>%
+  st_point_on_surface()
+
+centroids$x <- st_coordinates(centroids)[,1]
+centroids$y <- st_coordinates(centroids)[,2]
+
+centroids$COUNTY_NAME <- centroids$NAME
+
+# =========================
+# Join data
+# =========================
+pie_sf <- centroids %>%
+  st_drop_geometry() %>%
+  left_join(county_dat, by = "COUNTY_NAME") %>%
+  filter(!is.na(Total), Total > 0)
+
+# Ensure numeric (CRITICAL for scatterpie)
+pie_sf <- pie_sf %>%
+  mutate(across(
+    c(lecontei, californicus, subcylindricus, submetallicus, Total),
+    as.numeric
+  ))
+
+# Add colors
+species_colors <- c("#66CC66", "lightblue", "#E6D2B5", "#F7BB38")
+
+names(species_colors) <- c(
+  "lecontei",
+  "subcylindricus",
+  "submetallicus",
+  "californicus"
+)
+
+# outline counties with data
+shp_clip$has_pie <- shp_clip$NAME %in% pie_sf$COUNTY_NAME
+```
+
+
+
+```{r}
+# =========================
+# MAIN MAP (pies)
+# =========================
+main_map <- ggplot() +
+
+  # counties WITHOUT data (light outline)
+geom_sf(
+  data = shp_clip %>% dplyr::filter(!has_pie),
+  color = "grey85",
+  linewidth = 0.4,
+  fill = "grey95"
+) +
+
+# counties WITH pies (emphasized outline)
+geom_sf(
+  data = shp_clip %>% dplyr::filter(has_pie),
+  color = "grey70",
+  linewidth = 1.2,
+  fill = "grey95"
+) +
+
+  geom_scatterpie(
+    data = pie_sf,
+    aes(x = x, y = y, r = 0.1),
+    cols = c("lecontei", "californicus", "subcylindricus", "submetallicus"),
+    color = "grey70",
+    linewidth = 0.3,   # add this for clarity
+    alpha = 0.9
+  ) +
+  
+  geom_text(
+  data = pie_sf,
+  aes(x = x, y = y, label = COUNTY_NAME),
+  size = 8,
+  fontface = "bold",
+  color = "black",
+  nudge_y = 0.15,
+  check_overlap = TRUE
+) +
+
+  coord_sf(crs = st_crs(shp_clip)) +
+
+  scale_fill_manual(
+    values = species_colors,
+    name = "Omus species"
+  ) +
+
+  theme_minimal() +
+  labs(title = NULL) +
+  theme(
+    legend.position = c(1.6, 0.25),     # pushes slightly outside plot
+    legend.title = element_text(size = 37, face = "bold"),
+    legend.text = element_text(size = 28),
+    legend.key.size = unit(2, "cm"),
+    axis.title = element_blank(),
+    axis.text.x = element_text(size= 20, angle = 45, hjust = 1),
+    axis.text.y = element_text(size= 20))
+    
+# =========================
+# INSET MAP
+# =========================
+inset_map <- ggplot() +
+  geom_sf(data = shp, fill = "grey90", color = "white") +
+  geom_sf(data = shp_clip, fill = NA, color = "grey70", linewidth = 1) +
+  theme_void()
+
+# =========================
+# COMBINE
+# =========================
+final_map <- ggdraw() +
+  draw_plot(main_map, x = -0.05, y = 0, width = 0.75, height = 1) +
+  draw_plot(inset_map, x = 0.53, y = 0.23, width = 0.4, height = 0.95)
+```
+
+
+
+### Export map
+
+```{r}
+ggsave(
+  filename = "central_california_omus_map.png",
+  plot = final_map,
+  width = 12,
+  height = 8,
+  dpi = 300
+)
+```
+
+
